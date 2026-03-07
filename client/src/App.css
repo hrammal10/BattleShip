@@ -1,0 +1,4 @@
+.app {
+    min-height: 100vh;
+    background: linear-gradient(180deg, #0a1628 0%, #0d2137 40%, #112d4e 100%);
+}

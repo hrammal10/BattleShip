@@ -1,0 +1,33 @@
+.copy-link {
+    display: flex;
+    gap: 8px;
+    width: 100%;
+    max-width: 500px;
+}
+
+.link-input {
+    flex: 1;
+    padding: 10px 14px;
+    background: rgba(0, 0, 0, 0.3);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 6px;
+    color: #ecf0f1;
+    font-size: 0.9rem;
+    outline: none;
+}
+
+.copy-btn {
+    padding: 10px 20px;
+    background: #2ecc71;
+    border: none;
+    border-radius: 6px;
+    color: #fff;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.2s ease;
+    white-space: nowrap;
+}
+
+.copy-btn:hover {
+    background: #27ae60;
+}

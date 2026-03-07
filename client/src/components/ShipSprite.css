@@ -1,0 +1,18 @@
+.ship-sprite {
+    display: inline-block;
+    overflow: hidden;
+}
+
+.ship-sprite-inner {
+    display: flex;
+    align-items: center;
+}
+
+.ship-sprite-inner svg {
+    width: 100%;
+    height: 100%;
+}
+
+.ship-sprite-sunk .ship-sprite-inner svg {
+    filter: brightness(0.6) sepia(1) hue-rotate(-30deg) saturate(3);
+}
