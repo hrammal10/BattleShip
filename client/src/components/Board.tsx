@@ -10,17 +10,31 @@ export interface ShipOverlay {
     isSunk?: boolean;
 }
 
+export interface GhostOverlay {
+    shipId: string;
+    cells: { row: number; col: number }[];
+    orientation: "horizontal" | "vertical";
+    valid: boolean;
+}
+
 interface BoardProps {
     board: number[][];
     onCellClick?: (row: number, col: number) => void;
+    onCellHover?: (row: number, col: number) => void;
+    onBoardLeave?: () => void;
+    onRowLabelClick?: (row: number) => void;
+    onColLabelClick?: (col: number) => void;
     interactive?: boolean;
     showShips?: boolean;
-    placingCells?: { row: number; col: number }[];
-    validNextCells?: { row: number; col: number }[];
     placedShipCells?: { row: number; col: number }[];
     shipOverlays?: ShipOverlay[];
+    ghostOverlay?: GhostOverlay | null;
+    radarCells?: { row: number; col: number; hasShip: boolean }[];
+    decoyCell?: { row: number; col: number } | null;
     title: string;
 }
+
+const coordKey = (row: number, col: number) => `${row},${col}`;
 
 const COL_LABELS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10"];
 const ROW_LABELS = ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J"];
@@ -36,7 +50,6 @@ function getOverlayStyle(cells: { row: number; col: number }[]) {
     const isHorizontal = sorted.every((c) => c.row === first.row);
     const orientation = isHorizontal ? "horizontal" : "vertical";
 
-    // Position: padding + label + gap, then cell index * (cellSize + gap)
     const left = PADDING + LABEL_SIZE + GAP + first.col * (CELL_SIZE + GAP);
     const top = PADDING + LABEL_SIZE + GAP + first.row * (CELL_SIZE + GAP);
 
@@ -46,67 +59,80 @@ function getOverlayStyle(cells: { row: number; col: number }[]) {
 export default function Board({
     board,
     onCellClick,
+    onCellHover,
+    onBoardLeave,
+    onRowLabelClick,
+    onColLabelClick,
     interactive = false,
     showShips = false,
-    placingCells = [],
-    validNextCells = [],
     placedShipCells = [],
     shipOverlays = [],
+    ghostOverlay = null,
+    radarCells = [],
+    decoyCell = null,
     title,
 }: BoardProps) {
+    const radarMap = new Map(radarCells.map((rc) => [coordKey(rc.row, rc.col), rc.hasShip]));
+
     const sunkCells = new Set(
         shipOverlays
             .filter((o) => o.isSunk)
-            .flatMap((o) => o.cells.map((c) => `${c.row},${c.col}`)),
+            .flatMap((o) => o.cells.map((c) => coordKey(c.row, c.col))),
     );
 
-    const isPlacing = (row: number, col: number) =>
-        placingCells.some((c) => c.row === row && c.col === col);
+    const placedShipSet = new Set(placedShipCells.map((c) => coordKey(c.row, c.col)));
 
-    const isValidNext = (row: number, col: number) =>
-        validNextCells.some((c) => c.row === row && c.col === col);
-
-    const isPlacedShip = (row: number, col: number) =>
-        placedShipCells.some((c) => c.row === row && c.col === col);
-
-    // If placement props are provided, restrict interactivity to specific cells.
-    // Otherwise (attack board), all cells are interactive when interactive=true.
-    const inPlacementMode =
-        placingCells.length > 0 || validNextCells.length > 0 || placedShipCells.length > 0;
+    const ghostCellMap = ghostOverlay
+        ? new Map(
+              ghostOverlay.cells.map((c) => [
+                  coordKey(c.row, c.col),
+                  ghostOverlay.valid ? "valid" : ("invalid" as "valid" | "invalid"),
+              ]),
+          )
+        : null;
 
     return (
         <div className="board-container">
             <h3 className="board-title">{title}</h3>
-            <div className="board-grid-wrapper">
+            <div className="board-grid-wrapper" onMouseLeave={onBoardLeave}>
                 <div className="board">
                     <div className="board-corner" />
-                    {COL_LABELS.map((label) => (
-                        <div key={label} className="board-col-label">
+                    {COL_LABELS.map((label, colIdx) => (
+                        <div
+                            key={label}
+                            className={`board-col-label${onColLabelClick ? " clickable" : ""}`}
+                            onClick={() => onColLabelClick?.(colIdx)}
+                        >
                             {label}
                         </div>
                     ))}
                     {board.map((row, rowIdx) => (
                         <Fragment key={rowIdx}>
-                            <div className="board-row-label">{ROW_LABELS[rowIdx]}</div>
+                            <div
+                                className={`board-row-label${onRowLabelClick ? " clickable" : ""}`}
+                                onClick={() => onRowLabelClick?.(rowIdx)}
+                            >
+                                {ROW_LABELS[rowIdx]}
+                            </div>
                             {row.map((cell, colIdx) => (
                                 <Cell
                                     key={`${rowIdx}-${colIdx}`}
                                     value={cell}
-                                    row={rowIdx}
-                                    col={colIdx}
                                     onClick={() => onCellClick?.(rowIdx, colIdx)}
-                                    interactive={
-                                        inPlacementMode
-                                            ? (interactive && isValidNext(rowIdx, colIdx)) ||
-                                              isPlacing(rowIdx, colIdx) ||
-                                              isPlacedShip(rowIdx, colIdx)
-                                            : interactive
-                                    }
+                                    onMouseEnter={() => onCellHover?.(rowIdx, colIdx)}
+                                    interactive={interactive}
                                     showShips={showShips}
-                                    isPlacing={isPlacing(rowIdx, colIdx)}
-                                    isValidNext={interactive && isValidNext(rowIdx, colIdx)}
-                                    isPlacedShip={isPlacedShip(rowIdx, colIdx)}
-                                    isSunkShip={sunkCells.has(`${rowIdx},${colIdx}`)}
+                                    isPlacedShip={placedShipSet.has(coordKey(rowIdx, colIdx))}
+                                    isSunkShip={sunkCells.has(coordKey(rowIdx, colIdx))}
+                                    isDecoy={decoyCell?.row === rowIdx && decoyCell?.col === colIdx}
+                                    radarState={
+                                        radarMap.has(coordKey(rowIdx, colIdx))
+                                            ? radarMap.get(coordKey(rowIdx, colIdx))
+                                                ? "ship"
+                                                : "empty"
+                                            : undefined
+                                    }
+                                    ghostState={ghostCellMap?.get(coordKey(rowIdx, colIdx))}
                                 />
                             ))}
                         </Fragment>
@@ -120,9 +146,15 @@ export default function Board({
                                 key={overlay.shipId}
                                 className="ship-overlay"
                                 style={{ left, top }}
-                                initial={overlay.isSunk ? { opacity: 0, scale: 1.3 } : { opacity: 0.85 }}
+                                initial={
+                                    overlay.isSunk ? { opacity: 0, scale: 1.3 } : { opacity: 0.85 }
+                                }
                                 animate={{ opacity: 0.85, scale: 1 }}
-                                transition={overlay.isSunk ? { duration: 0.6, ease: "easeOut" } : { duration: 0 }}
+                                transition={
+                                    overlay.isSunk
+                                        ? { duration: 0.6, ease: "easeOut" }
+                                        : { duration: 0 }
+                                }
                             >
                                 <ShipSprite
                                     shipId={overlay.shipId}

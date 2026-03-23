@@ -1,20 +1,15 @@
 import { Server, Socket } from "socket.io";
-import { v4 as uuidv4 } from "uuid";
-import Game from "../models/Game";
+import { GameService } from "../services/GameService";
+import { CELL } from "../game/constants";
 import { GameState } from "../game/types";
+import { gameStore } from "../store/gameStore";
 import logger from "../utils/logger";
 
 export function registerLobbyHandlers(io: Server, socket: Socket) {
-    socket.on("create-game", async () => {
+    socket.on("create-game", () => {
         try {
-            const gameId = uuidv4().slice(0, 8);
-
-            const game = new Game({
-                gameId,
-                state: GameState.WAITING,
-                player1: { socketId: socket.id, ready: false, rematchReady: false, ships: [] },
-            });
-            await game.save();
+            const game = GameService.createGame(socket.id);
+            const gameId = game.gameId;
 
             socket.join(gameId);
             socket.data.gameId = gameId;
@@ -30,34 +25,31 @@ export function registerLobbyHandlers(io: Server, socket: Socket) {
         }
     });
 
-    socket.on("join-game", async ({ gameId }: { gameId: string }) => {
+    socket.on("join-game", ({ gameId }: { gameId: string }) => {
         try {
-            const game = await Game.findOne({ gameId });
+            const existing = gameStore.get(gameId);
 
-            if (!game) {
+            if (!existing) {
                 socket.emit("error", { message: "Game not found" });
                 return;
             }
-            if (game.state !== GameState.WAITING) {
-                socket.emit("error", { message: "Game is not joinable" });
-                return;
-            }
-            if (game.player1?.socketId === socket.id) {
+            if (existing.player1?.socketId === socket.id) {
                 socket.emit("error", { message: "Cannot join your own game" });
                 return;
             }
 
-            game.player2 = { socketId: socket.id, ready: false, rematchReady: false, ships: [] };
-            game.state = GameState.SETUP;
-            await game.save();
+            const game = GameService.joinGame(gameId, socket.id);
+            if (!game) {
+                socket.emit("error", { message: "Game is not joinable" });
+                return;
+            }
 
             socket.join(gameId);
             socket.data.gameId = gameId;
             socket.data.playerNumber = 2;
 
             socket.emit("game-joined", { gameId, playerId: 2 });
-            socket.to(gameId).emit("opponent-joined", { gameId });
-            io.to(gameId).emit("setup-phase", { gameId });
+            io.to(gameId).emit("president-select", { gameId });
 
             logger.info("Player joined game", { gameId, socketId: socket.id });
         } catch (error) {
@@ -68,48 +60,87 @@ export function registerLobbyHandlers(io: Server, socket: Socket) {
         }
     });
 
-    socket.on(
-        "rejoin-game",
-        async ({ gameId, playerId }: { gameId: string; playerId: 1 | 2 }) => {
-            try {
-                const game = await Game.findOne({ gameId });
+    socket.on("rejoin-game", ({ gameId, playerId }: { gameId: string; playerId: 1 | 2 }) => {
+        try {
+            const existing = gameStore.get(gameId);
 
-                if (!game) {
-                    socket.emit("error", { message: "Game not found" });
-                    return;
-                }
-
-                const playerKey = playerId === 1 ? "player1" : "player2";
-                if (!game[playerKey]) {
-                    socket.emit("error", { message: "Player not found in game" });
-                    return;
-                }
-
-                // Update the stored socket ID to the new one
-                game[playerKey]!.socketId = socket.id;
-                await game.save();
-
-                socket.join(gameId);
-                socket.data.gameId = gameId;
-                socket.data.playerNumber = playerId;
-
-                socket.emit("rejoin-success", {
-                    gameId,
-                    playerId,
-                    gameState: game.state,
-                });
-
-                logger.info("Player rejoined game", {
-                    gameId,
-                    player: playerId,
-                    socketId: socket.id,
-                });
-            } catch (error) {
-                logger.error("Error rejoining game", {
-                    error: error instanceof Error ? error.message : error,
-                });
-                socket.emit("error", { message: "Failed to rejoin game" });
+            if (!existing) {
+                socket.emit("error", { message: "Game not found" });
+                return;
             }
-        },
-    );
+
+            const playerKey = playerId === 1 ? "player1" : "player2";
+            if (!existing[playerKey]) {
+                socket.emit("error", { message: "Player not found in game" });
+                return;
+            }
+
+            // Block rejoin if the original socket is still connected (e.g. another tab)
+            const oldSocketId = existing[playerKey]!.socketId;
+            if (oldSocketId && oldSocketId !== socket.id && io.sockets.sockets.has(oldSocketId)) {
+                socket.emit("error", { message: "Game is not joinable" });
+                return;
+            }
+
+            const game = GameService.rejoinGame(gameId, playerId, socket.id);
+            if (!game) {
+                socket.emit("error", { message: "Failed to rejoin game" });
+                return;
+            }
+
+            socket.join(gameId);
+            socket.data.gameId = gameId;
+            socket.data.playerNumber = playerId;
+
+            const myPlayer = playerId === 1 ? game.player1 : game.player2;
+            const enemyPlayer = playerId === 1 ? game.player2 : game.player1;
+            const myBoard = playerId === 1 ? game.board1 : game.board2;
+            const enemyBoard = playerId === 1 ? game.board2 : game.board1;
+
+            // Mask enemy board — only reveal HIT and MISS cells
+            const attackBoard = enemyBoard.map((row) =>
+                row.map((cell) => (cell === CELL.HIT || cell === CELL.MISS ? cell : CELL.EMPTY)),
+            );
+
+            // Derive sunk enemy ships (all cells are HIT on the enemy board)
+            const sunkEnemyShips = (enemyPlayer?.ships ?? [])
+                .filter((ship) => ship.cells.every((c) => enemyBoard[c.row][c.col] === CELL.HIT))
+                .map((s) => ({ shipId: s.shipId, cells: s.cells }));
+
+            // Full enemy ships revealed only after game ends
+            const enemyShips =
+                game.state === GameState.FINISHED && enemyPlayer
+                    ? enemyPlayer.ships.map((s) => ({ shipId: s.shipId, cells: s.cells }))
+                    : [];
+
+            socket.emit("rejoin-success", {
+                gameId,
+                playerId,
+                gameState: game.state,
+                myBoard,
+                attackBoard,
+                myShips: (myPlayer?.ships ?? []).map((s) => ({ shipId: s.shipId, cells: s.cells })),
+                sunkEnemyShips,
+                president: myPlayer?.president ?? null,
+                enemyPresident: enemyPlayer?.president ?? null,
+                abilityUsed: myPlayer?.abilityUsed ?? false,
+                sweepCharges: myPlayer?.sweepCharges ?? 0,
+                turn: game.turn,
+                winner: game.winner,
+                opponentReady: enemyPlayer?.ready ?? false,
+                enemyShips,
+            });
+
+            logger.info("Player rejoined game", {
+                gameId,
+                player: playerId,
+                socketId: socket.id,
+            });
+        } catch (error) {
+            logger.error("Error rejoining game", {
+                error: error instanceof Error ? error.message : error,
+            });
+            socket.emit("error", { message: "Failed to rejoin game" });
+        }
+    });
 }

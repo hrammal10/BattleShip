@@ -4,30 +4,31 @@ import "./Cell.css";
 
 interface CellProps {
     value: number;
-    row: number;
-    col: number;
     onClick?: () => void;
+    onMouseEnter?: () => void;
     interactive?: boolean;
-    isPlacing?: boolean;
-    isValidNext?: boolean;
     isPlacedShip?: boolean;
     isSunkShip?: boolean;
+    isDecoy?: boolean;
     showShips?: boolean;
+    radarState?: "ship" | "empty";
+    ghostState?: "valid" | "invalid";
 }
 
 export default function Cell({
     value,
     onClick,
+    onMouseEnter,
     interactive = false,
-    isPlacing = false,
-    isValidNext = false,
     isPlacedShip = false,
     isSunkShip = false,
+    isDecoy = false,
     showShips = false,
+    radarState,
+    ghostState,
 }: CellProps) {
     const getCellClass = () => {
-        if (isPlacing) return "cell cell-placing";
-        if (isValidNext) return "cell cell-valid-next";
+        if (isDecoy) return "cell cell-decoy";
         if (isPlacedShip) return "cell cell-ship cell-ship-pickup";
         switch (value) {
             case CELL.SHIP:
@@ -43,12 +44,22 @@ export default function Cell({
 
     return (
         <motion.div
-            className={`${getCellClass()} ${interactive ? "cell-interactive" : ""}`}
-            onClick={interactive ? onClick : undefined}
+            className={`${getCellClass()} ${interactive ? "cell-interactive" : ""} ${ghostState ? `cell-ghost-${ghostState}` : ""}`}
+            onClick={interactive || isPlacedShip ? onClick : undefined}
+            onMouseEnter={onMouseEnter}
             whileHover={interactive ? { scale: 1.1 } : {}}
             whileTap={interactive ? { scale: 0.95 } : {}}
         >
-            {value === CELL.HIT && !isSunkShip && (
+            {isDecoy && (
+                <motion.div
+                    className="decoy-marker"
+                    animate={{ opacity: [0.6, 1, 0.6] }}
+                    transition={{ repeat: Infinity, duration: 1.8 }}
+                >
+                    🎭
+                </motion.div>
+            )}
+            {value === CELL.HIT && !isSunkShip && !showShips && (
                 <motion.div
                     className="hit-marker"
                     initial={{ scale: 0, opacity: 0 }}
@@ -67,6 +78,11 @@ export default function Cell({
                 >
                     💧
                 </motion.div>
+            )}
+            {radarState && (
+                <div className={`radar-marker radar-${radarState}`}>
+                    {radarState === "ship" ? "📍" : "○"}
+                </div>
             )}
         </motion.div>
     );

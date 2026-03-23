@@ -22,9 +22,26 @@ function CarrierSVG() {
                 strokeWidth="2"
             />
             {/* Flight deck */}
-            <rect x="90" y="32" width="340" height="36" rx="3" fill="#6b7d8e" stroke="#4a5a6a" strokeWidth="1.5" />
+            <rect
+                x="90"
+                y="32"
+                width="340"
+                height="36"
+                rx="3"
+                fill="#6b7d8e"
+                stroke="#4a5a6a"
+                strokeWidth="1.5"
+            />
             {/* Deck lines */}
-            <line x1="120" y1="50" x2="400" y2="50" stroke="#4a5a6a" strokeWidth="1" strokeDasharray="8,4" />
+            <line
+                x1="120"
+                y1="50"
+                x2="400"
+                y2="50"
+                stroke="#4a5a6a"
+                strokeWidth="1"
+                strokeDasharray="8,4"
+            />
             {/* Island/tower */}
             <rect x="300" y="20" width="35" height="15" rx="2" fill="#4a5a6a" />
             <rect x="310" y="12" width="15" height="10" rx="1" fill="#3a4a5a" />
@@ -89,15 +106,42 @@ function SubmarineSVG() {
     return (
         <svg viewBox="0 0 300 100" preserveAspectRatio="none">
             {/* Hull - rounded cigar shape */}
-            <ellipse cx="150" cy="58" rx="130" ry="20" fill="#5a6e7f" stroke="#3a4a5a" strokeWidth="2" />
+            <ellipse
+                cx="150"
+                cy="58"
+                rx="130"
+                ry="20"
+                fill="#5a6e7f"
+                stroke="#3a4a5a"
+                strokeWidth="2"
+            />
             {/* Conning tower */}
-            <rect x="120" y="32" width="45" height="18" rx="6" fill="#4a5a6a" stroke="#3a4a5a" strokeWidth="1.5" />
+            <rect
+                x="120"
+                y="32"
+                width="45"
+                height="18"
+                rx="6"
+                fill="#4a5a6a"
+                stroke="#3a4a5a"
+                strokeWidth="1.5"
+            />
             {/* Periscope */}
             <rect x="140" y="20" width="4" height="14" rx="1" fill="#3a4a5a" />
             <rect x="137" y="18" width="10" height="4" rx="1" fill="#3a4a5a" />
             {/* Tail fin */}
-            <path d="M25,48 L12,35 L12,55 L20,58 Z" fill="#4a5a6a" stroke="#3a4a5a" strokeWidth="1" />
-            <path d="M25,68 L12,80 L12,65 L20,62 Z" fill="#4a5a6a" stroke="#3a4a5a" strokeWidth="1" />
+            <path
+                d="M25,48 L12,35 L12,55 L20,58 Z"
+                fill="#4a5a6a"
+                stroke="#3a4a5a"
+                strokeWidth="1"
+            />
+            <path
+                d="M25,68 L12,80 L12,65 L20,62 Z"
+                fill="#4a5a6a"
+                stroke="#3a4a5a"
+                strokeWidth="1"
+            />
             {/* Bow */}
             <ellipse cx="275" cy="58" rx="8" ry="12" fill="#4e6272" />
         </svg>

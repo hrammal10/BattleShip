@@ -4,6 +4,7 @@ import HomePage from "./pages/HomePage";
 import LobbyPage from "./pages/LobbyPage";
 import SetupPage from "./pages/SetupPage";
 import GamePage from "./pages/GamePage";
+import PresidentSelectPage from "./pages/PresidentSelectPage";
 import "./App.css";
 
 export default function App() {
@@ -14,6 +15,7 @@ export default function App() {
                     <Routes>
                         <Route path="/" element={<HomePage />} />
                         <Route path="/play/:gameId" element={<LobbyPage />} />
+                        <Route path="/play/:gameId/president" element={<PresidentSelectPage />} />
                         <Route path="/play/:gameId/setup" element={<SetupPage />} />
                         <Route path="/play/:gameId/game" element={<GamePage />} />
                     </Routes>

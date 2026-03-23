@@ -1,50 +1,12 @@
-import { createContext, useContext, useReducer, useEffect, useCallback } from "react";
+import { useReducer, useCallback } from "react";
 import type { ReactNode } from "react";
 import socket from "../socket";
 import { GameState, BOARD_SIZE, CELL } from "../types/game";
-import type { ShipPlacement, ShotResultEvent } from "../types/game";
-import { playSound } from "../utils/sounds";
-
-interface SunkShip {
-    shipId: string;
-    cells: { row: number; col: number }[];
-}
-
-interface GameContextState {
-    gameId: string | null;
-    playerId: 1 | 2 | null;
-    gameState: GameState;
-    myBoard: number[][];
-    attackBoard: number[][];
-    myShips: ShipPlacement[];
-    sunkEnemyShips: SunkShip[];
-    mySunkShips: SunkShip[];
-    turn: 1 | 2;
-    winner: 1 | 2 | null;
-    opponentReady: boolean;
-    rematchCount: number;
-    connected: boolean;
-    error: string | null;
-}
-
-type GameAction =
-    | { type: "GAME_CREATED"; gameId: string; playerId: 1 | 2 }
-    | { type: "GAME_JOINED"; gameId: string; playerId: 1 | 2 }
-    | { type: "OPPONENT_JOINED" }
-    | { type: "SETUP_PHASE" }
-    | { type: "SHIPS_PLACED"; ships: ShipPlacement[]; board: number[][] }
-    | { type: "SHIPS_ACCEPTED" }
-    | { type: "SHIPS_REJECTED"; reason: string }
-    | { type: "OPPONENT_READY" }
-    | { type: "GAME_START"; turn: 1 | 2; playerId: 1 | 2 }
-    | { type: "SHOT_RESULT"; data: ShotResultEvent }
-    | { type: "GAME_OVER"; winner: 1 | 2 }
-    | { type: "REMATCH_UPDATE"; count: number }
-    | { type: "OPPONENT_DISCONNECTED" }
-    | { type: "CONNECTED" }
-    | { type: "DISCONNECTED" }
-    | { type: "ERROR"; message: string }
-    | { type: "CLEAR_ERROR" };
+import type { ShipPlacement } from "../types/game";
+import type { GameAction } from "../hooks/types";
+import { useSocketEvents } from "../hooks/useSocketEvents";
+import { GameContext } from "./gameContextDef";
+import type { GameContextState, GameContextValue } from "./gameContextDef";
 
 function createEmptyBoard(): number[][] {
     return Array.from({ length: BOARD_SIZE }, () => Array(BOARD_SIZE).fill(CELL.EMPTY));
@@ -65,6 +27,13 @@ const initialState: GameContextState = {
     rematchCount: 0,
     connected: false,
     error: null,
+    president: null,
+    enemyPresident: null,
+    abilityUsed: false,
+    radarCells: [],
+    sweepCharges: 0,
+    enemyShips: [],
+    chatMessages: [],
 };
 
 function gameReducer(state: GameContextState, action: GameAction): GameContextState {
@@ -84,6 +53,38 @@ function gameReducer(state: GameContextState, action: GameAction): GameContextSt
             };
         case "OPPONENT_JOINED":
             return state;
+        case "PRESIDENT_SELECT":
+            return { ...state, gameState: GameState.PRESIDENT_SELECT };
+        case "PRESIDENT_CHOSEN":
+            return { ...state, president: action.presidentId };
+        case "ENEMY_PRESIDENT_REVEALED":
+            return { ...state, enemyPresident: action.presidentId };
+        case "ABILITY_USED":
+            return { ...state, abilityUsed: true };
+        case "SWEEP_CHARGED":
+            return { ...state, sweepCharges: Math.min(3, state.sweepCharges + 1) };
+        case "SWEEP_USED":
+            return {
+                ...state,
+                sweepCharges: action.chargesRemaining,
+                abilityUsed: action.chargesRemaining === 0,
+            };
+        case "RADAR_REVEALED":
+            return { ...state, radarCells: [...state.radarCells, ...action.cells] };
+        case "SNIPER_REVEALED":
+            return {
+                ...state,
+                radarCells: [
+                    ...state.radarCells,
+                    { row: action.row, col: action.col, hasShip: true },
+                ],
+            };
+        case "GHOST_MOVED": {
+            const newMyShips = state.myShips.map((s) =>
+                s.shipId === action.shipId ? { ...s, cells: action.newCells } : s,
+            );
+            return { ...state, myShips: newMyShips };
+        }
         case "SETUP_PHASE":
             return {
                 ...state,
@@ -93,6 +94,9 @@ function gameReducer(state: GameContextState, action: GameAction): GameContextSt
                 rematchCount: 0,
                 sunkEnemyShips: [],
                 mySunkShips: [],
+                abilityUsed: false,
+                radarCells: [],
+                sweepCharges: 0,
             };
         case "SHIPS_PLACED":
             return {
@@ -120,8 +124,11 @@ function gameReducer(state: GameContextState, action: GameAction): GameContextSt
                 attackBoard: createEmptyBoard(),
             };
         case "SHOT_RESULT": {
-            const { row, col, result, shooter, nextTurn, sunkShipId, sunkShipCells } = action.data;
+            const { row, col, result, shooter, nextTurn, sunkShipId, sunkShipCells, fromSweep } =
+                action.data;
             const isMyShot = shooter === state.playerId;
+            // Sweep shot-results must not update turn — ability-result is the sole source of truth for turn after a sweep
+            const turnUpdate = fromSweep ? {} : { turn: nextTurn };
 
             if (isMyShot) {
                 const newAttackBoard = state.attackBoard.map((r) => [...r]);
@@ -130,23 +137,37 @@ function gameReducer(state: GameContextState, action: GameAction): GameContextSt
                     result === "sunk" && sunkShipId && sunkShipCells
                         ? [...state.sunkEnemyShips, { shipId: sunkShipId, cells: sunkShipCells }]
                         : state.sunkEnemyShips;
-                return { ...state, attackBoard: newAttackBoard, turn: nextTurn, sunkEnemyShips: newSunkEnemyShips };
+                return {
+                    ...state,
+                    attackBoard: newAttackBoard,
+                    ...turnUpdate,
+                    sunkEnemyShips: newSunkEnemyShips,
+                };
             } else {
                 const newMyBoard = state.myBoard.map((r) => [...r]);
-                if (result === "miss") {
-                    newMyBoard[row][col] = CELL.MISS;
-                } else {
-                    newMyBoard[row][col] = CELL.HIT;
-                }
+                newMyBoard[row][col] = result === "miss" ? CELL.MISS : CELL.HIT;
                 const newMySunkShips =
                     result === "sunk" && sunkShipId && sunkShipCells
                         ? [...state.mySunkShips, { shipId: sunkShipId, cells: sunkShipCells }]
                         : state.mySunkShips;
-                return { ...state, myBoard: newMyBoard, turn: nextTurn, mySunkShips: newMySunkShips };
+                return {
+                    ...state,
+                    myBoard: newMyBoard,
+                    ...turnUpdate,
+                    mySunkShips: newMySunkShips,
+                };
             }
         }
+        case "TURN_CHANGED":
+            return { ...state, turn: action.nextTurn };
         case "GAME_OVER":
-            return { ...state, gameState: GameState.FINISHED, winner: action.winner, rematchCount: 0 };
+            return {
+                ...state,
+                gameState: GameState.FINISHED,
+                winner: action.winner,
+                rematchCount: 0,
+                enemyShips: action.enemyShips,
+            };
         case "REMATCH_UPDATE":
             return { ...state, rematchCount: action.count };
         case "OPPONENT_DISCONNECTED":
@@ -159,115 +180,38 @@ function gameReducer(state: GameContextState, action: GameAction): GameContextSt
             return { ...state, error: action.message };
         case "CLEAR_ERROR":
             return { ...state, error: null };
+        case "CHAT_MESSAGE":
+            return { ...state, chatMessages: [...state.chatMessages, action.message] };
+        case "REJOIN_STATE":
+            return {
+                ...state,
+                gameId: action.gameId,
+                playerId: action.playerId,
+                gameState: (action.gameState as GameState) ?? GameState.WAITING,
+                myBoard: action.myBoard,
+                attackBoard: action.attackBoard,
+                myShips: action.myShips,
+                sunkEnemyShips: action.sunkEnemyShips,
+                president: action.president,
+                enemyPresident: action.enemyPresident,
+                abilityUsed: action.abilityUsed,
+                sweepCharges: action.sweepCharges,
+                turn: action.turn,
+                winner: action.winner,
+                opponentReady: action.opponentReady,
+                enemyShips: action.enemyShips,
+            };
+        case "RESET":
+            return initialState;
         default:
             return state;
     }
 }
 
-interface GameContextValue extends GameContextState {
-    createGame: () => void;
-    joinGame: (gameId: string) => void;
-    placeShips: (ships: ShipPlacement[], board: number[][]) => void;
-    fireShot: (row: number, col: number) => void;
-    requestRematch: () => void;
-    isMyTurn: boolean;
-    clearError: () => void;
-}
-
-const GameContext = createContext<GameContextValue | null>(null);
-
 export function GameProvider({ children }: { children: ReactNode }) {
     const [state, dispatch] = useReducer(gameReducer, initialState);
 
-    useEffect(() => {
-        socket.connect();
-
-        socket.on("connect", () => {
-            dispatch({ type: "CONNECTED" });
-
-            // Auto-rejoin if we have stored session data
-            const storedGameId = sessionStorage.getItem("gameId");
-            const storedPlayerId = sessionStorage.getItem("playerId");
-            if (storedGameId && storedPlayerId) {
-                socket.emit("rejoin-game", {
-                    gameId: storedGameId,
-                    playerId: Number(storedPlayerId) as 1 | 2,
-                });
-            }
-        });
-        socket.on("disconnect", () => dispatch({ type: "DISCONNECTED" }));
-
-        socket.on("game-created", ({ gameId, playerId }) => {
-            sessionStorage.setItem("playerId", String(playerId));
-            sessionStorage.setItem("gameId", gameId);
-            dispatch({ type: "GAME_CREATED", gameId, playerId });
-        });
-
-        socket.on("game-joined", ({ gameId, playerId }) => {
-            sessionStorage.setItem("playerId", String(playerId));
-            sessionStorage.setItem("gameId", gameId);
-            dispatch({ type: "GAME_JOINED", gameId, playerId });
-        });
-
-        socket.on("rejoin-success", ({ gameId, playerId, gameState }) => {
-            dispatch({ type: "GAME_JOINED", gameId, playerId });
-            if (gameState === "SETUP") {
-                dispatch({ type: "SETUP_PHASE" });
-            } else if (gameState === "IN_PROGRESS") {
-                dispatch({ type: "SETUP_PHASE" });
-            }
-        });
-
-        socket.on("opponent-joined", () => dispatch({ type: "OPPONENT_JOINED" }));
-        socket.on("setup-phase", () => dispatch({ type: "SETUP_PHASE" }));
-        socket.on("ships-accepted", () => dispatch({ type: "SHIPS_ACCEPTED" }));
-
-        socket.on("ships-rejected", ({ reason }) => {
-            dispatch({ type: "SHIPS_REJECTED", reason });
-        });
-
-        socket.on("opponent-ready", () => {
-            dispatch({ type: "OPPONENT_READY" });
-        });
-
-        socket.on("game-start", ({ turn, yourPlayerId }) => {
-            dispatch({ type: "GAME_START", turn, playerId: yourPlayerId });
-        });
-
-        socket.on("shot-result", (data: ShotResultEvent) => {
-            if (data.result === "hit" || data.result === "sunk") {
-                playSound("hit");
-            } else {
-                playSound("miss");
-            }
-            if (data.result === "sunk") {
-                setTimeout(() => playSound("sunk"), 500);
-            }
-            dispatch({ type: "SHOT_RESULT", data });
-        });
-
-        socket.on("game-over", ({ winner }) => {
-            playSound("victory");
-            dispatch({ type: "GAME_OVER", winner });
-        });
-
-        socket.on("rematch-update", ({ count }: { count: number }) => {
-            dispatch({ type: "REMATCH_UPDATE", count });
-        });
-
-        socket.on("opponent-disconnected", () => {
-            dispatch({ type: "OPPONENT_DISCONNECTED" });
-        });
-
-        socket.on("error", ({ message }) => {
-            dispatch({ type: "ERROR", message });
-        });
-
-        return () => {
-            socket.removeAllListeners();
-            socket.disconnect();
-        };
-    }, []);
+    useSocketEvents(dispatch);
 
     const createGame = useCallback(() => {
         socket.emit("create-game");
@@ -277,24 +221,37 @@ export function GameProvider({ children }: { children: ReactNode }) {
         socket.emit("join-game", { gameId });
     }, []);
 
+    const rejoinGame = useCallback((gameId: string, playerId: 1 | 2) => {
+        socket.emit("rejoin-game", { gameId, playerId });
+    }, []);
+
     const placeShips = useCallback(
-        (ships: ShipPlacement[], board: number[][]) => {
+        (
+            ships: ShipPlacement[],
+            board: number[][],
+            decoyCell?: { row: number; col: number } | null,
+        ) => {
+            if (!state.gameId) return;
             dispatch({ type: "SHIPS_PLACED", ships, board });
-            socket.emit("place-ships", { gameId: state.gameId, ships });
-            playSound("ready");
+            socket.emit("place-ships", {
+                gameId: state.gameId,
+                ships,
+                decoyCell: decoyCell ?? null,
+            });
         },
         [state.gameId],
     );
 
     const fireShot = useCallback(
         (row: number, col: number) => {
-            if (state.turn !== state.playerId) return;
+            if (!state.gameId || state.turn !== state.playerId) return;
             socket.emit("fire-shot", { gameId: state.gameId, row, col });
         },
         [state.gameId, state.turn, state.playerId],
     );
 
     const requestRematch = useCallback(() => {
+        if (!state.gameId) return;
         socket.emit("request-rematch", { gameId: state.gameId });
     }, [state.gameId]);
 
@@ -302,24 +259,40 @@ export function GameProvider({ children }: { children: ReactNode }) {
         dispatch({ type: "CLEAR_ERROR" });
     }, []);
 
+    const selectPresident = useCallback(
+        (presidentId: string) => {
+            if (!state.gameId) return;
+            socket.emit("select-president", { gameId: state.gameId, presidentId });
+        },
+        [state.gameId],
+    );
+
+    const useAbility = useCallback(
+        (row?: number, col?: number, direction?: "row" | "col") => {
+            if (!state.gameId) return;
+            socket.emit("use-ability", { gameId: state.gameId, row, col, direction });
+        },
+        [state.gameId],
+    );
+
+    const resetGame = useCallback(() => {
+        dispatch({ type: "RESET" });
+    }, []);
+
     const value: GameContextValue = {
         ...state,
         createGame,
         joinGame,
+        rejoinGame,
         placeShips,
         fireShot,
         requestRematch,
         isMyTurn: state.turn === state.playerId,
         clearError,
+        selectPresident,
+        useAbility,
+        resetGame,
     };
 
     return <GameContext.Provider value={value}>{children}</GameContext.Provider>;
-}
-
-export function useGame() {
-    const context = useContext(GameContext);
-    if (!context) {
-        throw new Error("useGame must be used within a GameProvider");
-    }
-    return context;
 }

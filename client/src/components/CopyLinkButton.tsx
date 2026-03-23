@@ -1,19 +1,32 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import "./CopyLinkButton.css";
 
 interface CopyLinkButtonProps {
     gameId: string;
 }
 
+const COPIED_RESET_DELAY_MS = 2000;
+
 export default function CopyLinkButton({ gameId }: CopyLinkButtonProps) {
     const [copied, setCopied] = useState(false);
+    const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     const link = `${window.location.origin}/play/${gameId}`;
 
+    useEffect(() => {
+        return () => {
+            if (timeoutRef.current) clearTimeout(timeoutRef.current);
+        };
+    }, []);
+
     const handleCopy = async () => {
-        await navigator.clipboard.writeText(link);
-        setCopied(true);
-        setTimeout(() => setCopied(false), 2000);
+        try {
+            await navigator.clipboard.writeText(link);
+            setCopied(true);
+            timeoutRef.current = setTimeout(() => setCopied(false), COPIED_RESET_DELAY_MS);
+        } catch {
+            // Clipboard API unavailable or permission denied — no-op
+        }
     };
 
     return (

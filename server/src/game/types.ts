@@ -1,8 +1,17 @@
 export enum GameState {
     WAITING = "WAITING",
+    PRESIDENT_SELECT = "PRESIDENT_SELECT",
     SETUP = "SETUP",
     IN_PROGRESS = "IN_PROGRESS",
     FINISHED = "FINISHED",
+}
+
+export enum PresidentId {
+    STRATEGIST = "strategist",
+    SHIELD = "shield",
+    PROVOCATEUR = "provocateur",
+    GHOST = "ghost",
+    JUGGERNAUT = "juggernaut",
 }
 
 export interface ShipPlacement {
@@ -15,6 +24,12 @@ export interface IPlayer {
     ready: boolean;
     rematchReady: boolean;
     ships: ShipPlacement[];
+    president: PresidentId | null;
+    abilityUsed: boolean;
+    shieldHitsBlocked: number;
+    turnsToSkip: number;
+    sweepCharges: number;
+    decoyCell: { row: number; col: number } | null;
 }
 
 export interface IGame {

@@ -49,4 +49,54 @@
     color: #aab7b8;
     font-size: 0.75rem;
     font-weight: 600;
+    border-radius: 4px;
+    transition:
+        background 0.15s,
+        color 0.15s,
+        box-shadow 0.15s;
+}
+
+.board-col-label.clickable,
+.board-row-label.clickable {
+    cursor: pointer;
+    color: #f39c12;
+    background: rgba(243, 156, 18, 0.15);
+    box-shadow: 0 0 6px rgba(243, 156, 18, 0.3);
+    animation: label-pulse 1.5s ease-in-out infinite;
+}
+
+.board-col-label.clickable:hover,
+.board-row-label.clickable:hover {
+    color: #fff;
+    background: rgba(243, 156, 18, 0.4);
+    box-shadow: 0 0 10px rgba(243, 156, 18, 0.6);
+}
+
+@keyframes label-pulse {
+    0%,
+    100% {
+        box-shadow: 0 0 6px rgba(243, 156, 18, 0.3);
+    }
+    50% {
+        box-shadow: 0 0 12px rgba(243, 156, 18, 0.5);
+    }
+}
+
+.ship-overlay-ghost {
+    pointer-events: none;
+    z-index: 6;
+    transition:
+        left 0.05s,
+        top 0.05s;
+}
+
+.ship-overlay-ghost.ghost-valid {
+    opacity: 0.7;
+    filter: drop-shadow(0 0 6px rgba(46, 204, 113, 0.8)) hue-rotate(80deg) saturate(1.5);
+}
+
+.ship-overlay-ghost.ghost-invalid {
+    opacity: 0.55;
+    filter: drop-shadow(0 0 6px rgba(231, 76, 60, 0.8)) hue-rotate(-30deg) saturate(1.5)
+        brightness(0.85);
 }

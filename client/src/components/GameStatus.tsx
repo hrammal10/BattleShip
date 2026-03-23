@@ -8,26 +8,28 @@ interface GameStatusProps {
 
 export default function GameStatus({ message, isMyTurn }: GameStatusProps) {
     return (
-        <AnimatePresence mode="wait">
-            <motion.div
-                key={message}
-                className={`game-status ${isMyTurn ? "my-turn" : ""}`}
-                initial={{ y: -20, opacity: 0 }}
-                animate={{ y: 0, opacity: 1 }}
-                exit={{ y: 20, opacity: 0 }}
-                transition={{ type: "spring", damping: 15 }}
-            >
-                {isMyTurn && (
-                    <motion.span
-                        className="turn-indicator"
-                        animate={{ scale: [1, 1.2, 1] }}
-                        transition={{ repeat: Infinity, duration: 1.5 }}
-                    >
-                        &bull;
-                    </motion.span>
-                )}
-                {message}
-            </motion.div>
-        </AnimatePresence>
+        <div className="game-status-wrapper">
+            <AnimatePresence mode="wait">
+                <motion.div
+                    key={message}
+                    className={`game-status ${isMyTurn ? "my-turn" : ""}`}
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    transition={{ duration: 0.2 }}
+                >
+                    {isMyTurn && (
+                        <motion.span
+                            className="turn-indicator"
+                            animate={{ scale: [1, 1.2, 1] }}
+                            transition={{ repeat: Infinity, duration: 1.5 }}
+                        >
+                            &bull;
+                        </motion.span>
+                    )}
+                    {message}
+                </motion.div>
+            </AnimatePresence>
+        </div>
     );
 }

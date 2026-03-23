@@ -1,183 +1,201 @@
-import { useState, useCallback, useEffect, useMemo } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useState, useCallback, useEffect } from "react";
+import { useParams } from "react-router-dom";
 import { motion } from "framer-motion";
-import { useGame } from "../context/GameContext";
+import { useGame } from "../hooks/useGame";
 import Board from "../components/Board";
+import type { GhostOverlay } from "../components/Board";
 import ShipTray from "../components/ShipTray";
 import GameStatus from "../components/GameStatus";
-import { BOARD_SIZE, CELL, GameState, SHIPS } from "../types/game";
+import { BOARD_SIZE, CELL, GameState, SHIPS, PRESIDENTS, PresidentId } from "../types/game";
 import type { ShipDefinition, ShipPlacement } from "../types/game";
-import { playSound } from "../utils/sounds";
+import PresidentSidebar from "../components/PresidentSidebar";
+import { useGameNavigation } from "../hooks/useGameNavigation";
 import "./SetupPage.css";
+
+const SETUP_ROUTES = {
+    [GameState.IN_PROGRESS]: "/game",
+};
+
+function getShipCells(
+    ship: ShipDefinition,
+    row: number,
+    col: number,
+    isHorizontal: boolean,
+): { row: number; col: number }[] {
+    const offset = Math.floor(ship.length / 2);
+    const startRow = isHorizontal ? row : row - offset;
+    const startCol = isHorizontal ? col - offset : col;
+    const cells = [];
+    for (let i = 0; i < ship.length; i++) {
+        cells.push({
+            row: isHorizontal ? startRow : startRow + i,
+            col: isHorizontal ? startCol + i : startCol,
+        });
+    }
+    return cells;
+}
+
+function isPlacementValid(cells: { row: number; col: number }[], board: number[][]): boolean {
+    return cells.every(
+        (c) =>
+            c.row >= 0 &&
+            c.row < BOARD_SIZE &&
+            c.col >= 0 &&
+            c.col < BOARD_SIZE &&
+            board[c.row][c.col] === CELL.EMPTY,
+    );
+}
 
 export default function SetupPage() {
     const { gameId: urlGameId } = useParams<{ gameId: string }>();
-    const navigate = useNavigate();
-    const { gameState, placeShips, opponentReady } = useGame();
+    const { gameState, playerId, placeShips, opponentReady, president, enemyPresident } = useGame();
 
     const [board, setBoard] = useState<number[][]>(() =>
         Array.from({ length: BOARD_SIZE }, () => Array(BOARD_SIZE).fill(CELL.EMPTY)),
     );
     const [placements, setPlacements] = useState<ShipPlacement[]>([]);
     const [selectedShip, setSelectedShip] = useState<ShipDefinition | null>(null);
-    const [selectedCells, setSelectedCells] = useState<{ row: number; col: number }[]>([]);
+    const [isHorizontal, setIsHorizontal] = useState(true);
+    const [hoverCell, setHoverCell] = useState<{ row: number; col: number } | null>(null);
+    const [decoyCell, setDecoyCell] = useState<{ row: number; col: number } | null>(null);
+    const [placingDecoy, setPlacingDecoy] = useState(false);
     const [isReady, setIsReady] = useState(false);
 
+    const isProvocateur = president === PresidentId.PROVOCATEUR;
+    const presidentDef = president ? PRESIDENTS.find((p) => p.id === president) : null;
+    const enemyPresidentDef = enemyPresident
+        ? PRESIDENTS.find((p) => p.id === enemyPresident)
+        : null;
+
+    useGameNavigation(urlGameId, SETUP_ROUTES, true);
+
+    // R key to rotate
     useEffect(() => {
-        if (gameState === GameState.IN_PROGRESS) {
-            navigate(`/play/${urlGameId}/game`);
-        }
-    }, [gameState, urlGameId, navigate]);
-
-    // Compute valid next cells based on what's already been selected
-    const validNextCells = useMemo(() => {
-        if (!selectedShip || selectedCells.length >= selectedShip.length) return [];
-
-        const valid: { row: number; col: number }[] = [];
-
-        if (selectedCells.length === 0) {
-            // Any empty cell on the board is valid
-            for (let r = 0; r < BOARD_SIZE; r++) {
-                for (let c = 0; c < BOARD_SIZE; c++) {
-                    if (board[r][c] === CELL.EMPTY) {
-                        valid.push({ row: r, col: c });
-                    }
-                }
+        const handleKey = (e: KeyboardEvent) => {
+            if ((e.key === "r" || e.key === "R") && selectedShip && !isReady) {
+                setIsHorizontal((v) => !v);
             }
-            return valid;
-        }
-
-        if (selectedCells.length === 1) {
-            // Adjacent cells (up/down/left/right) that are empty
-            const { row, col } = selectedCells[0];
-            const neighbors = [
-                { row: row - 1, col },
-                { row: row + 1, col },
-                { row, col: col - 1 },
-                { row, col: col + 1 },
-            ];
-            for (const n of neighbors) {
-                if (
-                    n.row >= 0 &&
-                    n.row < BOARD_SIZE &&
-                    n.col >= 0 &&
-                    n.col < BOARD_SIZE &&
-                    board[n.row][n.col] === CELL.EMPTY
-                ) {
-                    valid.push(n);
-                }
-            }
-            return valid;
-        }
-
-        // 2+ cells placed: direction is locked, only extend from either end
-        const first = selectedCells[0];
-        const second = selectedCells[1];
-        const isHorizontal = first.row === second.row;
-
-        // Sort cells to find the min and max ends
-        const sorted = [...selectedCells].sort((a, b) =>
-            isHorizontal ? a.col - b.col : a.row - b.row,
-        );
-        const minEnd = sorted[0];
-        const maxEnd = sorted[sorted.length - 1];
-
-        if (isHorizontal) {
-            // Extend left or right
-            const left = { row: minEnd.row, col: minEnd.col - 1 };
-            const right = { row: maxEnd.row, col: maxEnd.col + 1 };
-            if (left.col >= 0 && board[left.row][left.col] === CELL.EMPTY) valid.push(left);
-            if (right.col < BOARD_SIZE && board[right.row][right.col] === CELL.EMPTY)
-                valid.push(right);
-        } else {
-            // Extend up or down
-            const up = { row: minEnd.row - 1, col: minEnd.col };
-            const down = { row: maxEnd.row + 1, col: maxEnd.col };
-            if (up.row >= 0 && board[up.row][up.col] === CELL.EMPTY) valid.push(up);
-            if (down.row < BOARD_SIZE && board[down.row][down.col] === CELL.EMPTY) valid.push(down);
-        }
-
-        return valid;
-    }, [selectedShip, selectedCells, board]);
+        };
+        window.addEventListener("keydown", handleKey);
+        return () => window.removeEventListener("keydown", handleKey);
+    }, [selectedShip, isReady]);
 
     const handleCellClick = useCallback(
         (row: number, col: number) => {
             if (isReady) return;
 
-            // If clicking a cell that belongs to an already-placed ship, pick it back up
-            if (!selectedShip || selectedCells.length === 0) {
+            // Decoy placement mode
+            if (placingDecoy) {
+                if (board[row][col] !== CELL.EMPTY) return;
+                setDecoyCell({ row, col });
+                setPlacingDecoy(false);
+                return;
+            }
+
+            // No ship selected — recall placed ship if clicked, or remove decoy
+            if (!selectedShip) {
+                if (decoyCell?.row === row && decoyCell?.col === col) {
+                    setDecoyCell(null);
+                    return;
+                }
                 const placement = placements.find((p) =>
                     p.cells.some((c) => c.row === row && c.col === col),
                 );
                 if (placement) {
-                    // Remove the ship from the board
                     const newBoard = board.map((r) => [...r]);
-                    for (const cell of placement.cells) {
-                        newBoard[cell.row][cell.col] = CELL.EMPTY;
-                    }
+                    for (const cell of placement.cells) newBoard[cell.row][cell.col] = CELL.EMPTY;
                     setBoard(newBoard);
                     setPlacements((prev) => prev.filter((p) => p.shipId !== placement.shipId));
-                    // Auto-select the ship for re-placement
-                    const shipDef = SHIPS.find((s) => s.id === placement.shipId) || null;
-                    setSelectedShip(shipDef);
-                    setSelectedCells([]);
-                    return;
+                    setSelectedShip(SHIPS.find((s) => s.id === placement.shipId) ?? null);
                 }
-            }
-
-            if (!selectedShip) return;
-
-            // If clicking a cell that's already placed in the current selection, undo back to it
-            const placedIndex = selectedCells.findIndex(
-                (c) => c.row === row && c.col === col,
-            );
-            if (placedIndex !== -1) {
-                setSelectedCells((prev) => prev.slice(0, placedIndex));
                 return;
             }
 
-            // Check if this cell is a valid next pick
-            const isValid = validNextCells.some((c) => c.row === row && c.col === col);
-            if (!isValid) return;
+            // Ship selected — validate and place
+            const cells = getShipCells(selectedShip, row, col, isHorizontal);
+            if (!isPlacementValid(cells, board)) return;
 
-            const newCells = [...selectedCells, { row, col }];
-            setSelectedCells(newCells);
-
-            // If all cells for this ship are placed, finalize
-            if (newCells.length === selectedShip.length) {
-                const newBoard = board.map((r) => [...r]);
-                for (const cell of newCells) {
-                    newBoard[cell.row][cell.col] = CELL.SHIP;
-                }
-                setBoard(newBoard);
-                setPlacements((prev) => [...prev, { shipId: selectedShip.id, cells: newCells }]);
-                setSelectedShip(null);
-                setSelectedCells([]);
-                playSound("place");
-            }
+            const newBoard = board.map((r) => [...r]);
+            for (const cell of cells) newBoard[cell.row][cell.col] = CELL.SHIP;
+            setBoard(newBoard);
+            setPlacements((prev) => [...prev, { shipId: selectedShip.id, cells }]);
+            setSelectedShip(null);
+            setHoverCell(null);
         },
-        [selectedShip, selectedCells, validNextCells, board, placements, isReady],
+        [selectedShip, isHorizontal, board, placements, isReady, placingDecoy, decoyCell],
+    );
+
+    const handleCellHover = useCallback(
+        (row: number, col: number) => {
+            if (!isReady) setHoverCell({ row, col });
+        },
+        [isReady],
+    );
+
+    const handleBoardLeave = useCallback(() => {
+        setHoverCell(null);
+    }, []);
+
+    const handleRecallShip = useCallback(
+        (shipId: string) => {
+            if (isReady) return;
+            if (selectedShip?.id === shipId) {
+                setSelectedShip(null);
+                return;
+            }
+            const placement = placements.find((p) => p.shipId === shipId);
+            if (!placement) return;
+            const newBoard = board.map((r) => [...r]);
+            for (const cell of placement.cells) newBoard[cell.row][cell.col] = CELL.EMPTY;
+            setBoard(newBoard);
+            setPlacements((prev) => prev.filter((p) => p.shipId !== shipId));
+        },
+        [isReady, selectedShip, placements, board],
     );
 
     const handleReady = () => {
-        if (placements.length !== 5) return;
-        placeShips(placements, board);
+        const allShipsPlaced = placements.length === SHIPS.length;
+        const decoyReady = !isProvocateur || decoyCell !== null;
+        if (!allShipsPlaced || !decoyReady) return;
+        placeShips(placements, board, isProvocateur ? decoyCell : null);
         setIsReady(true);
     };
 
-    const allShipsPlaced = placements.length === 5;
+    const allShipsPlaced = placements.length === SHIPS.length;
+    const canReady = allShipsPlaced && (!isProvocateur || decoyCell !== null);
+
+    // Compute ghost overlay
+    const ghostOverlay: GhostOverlay | null =
+        selectedShip && hoverCell && !isReady
+            ? (() => {
+                  const cells = getShipCells(
+                      selectedShip,
+                      hoverCell.row,
+                      hoverCell.col,
+                      isHorizontal,
+                  );
+                  return {
+                      shipId: selectedShip.id,
+                      cells,
+                      orientation: isHorizontal ? "horizontal" : "vertical",
+                      valid: isPlacementValid(cells, board),
+                  };
+              })()
+            : null;
 
     const statusMessage = isReady
         ? opponentReady
             ? "Both ready! Starting game..."
             : "Waiting for opponent..."
-        : selectedShip
-          ? selectedCells.length > 0
-              ? `${selectedShip.name}: ${selectedCells.length}/${selectedShip.length} cells placed`
-              : `Place your ${selectedShip.name} (${selectedShip.length} cells)`
-          : allShipsPlaced
-            ? "All ships placed! Click Ready"
-            : "Select a ship to place";
+        : placingDecoy
+          ? "Click any empty cell to place your decoy 🎭"
+          : selectedShip
+            ? `Placing ${selectedShip.name} — click to place, R to rotate (${isHorizontal ? "→" : "↓"})`
+            : !allShipsPlaced
+              ? "Select a ship from the tray to place it"
+              : isProvocateur && !decoyCell
+                ? "Now place your decoy — click 🎭 Place Decoy, then pick a cell"
+                : "All ships placed! Click Ready";
 
     return (
         <div className="setup-page">
@@ -189,24 +207,29 @@ export default function SetupPage() {
                 animate={{ opacity: 1 }}
                 transition={{ duration: 0.4 }}
             >
+                <PresidentSidebar president={presidentDef ?? null} />
+
                 <ShipTray
                     placedShipIds={placements.map((p) => p.shipId)}
                     selectedShip={selectedShip}
+                    inProgressShipId={null}
                     onSelectShip={(ship) => {
                         setSelectedShip(ship);
-                        setSelectedCells([]);
+                        setPlacingDecoy(false);
                     }}
+                    onRecallShip={handleRecallShip}
+                    disabled={isReady}
                 />
 
                 <Board
                     board={board}
                     onCellClick={handleCellClick}
-                    interactive={!isReady && !!selectedShip}
+                    onCellHover={handleCellHover}
+                    onBoardLeave={handleBoardLeave}
+                    interactive={!isReady && (!!selectedShip || placingDecoy)}
                     showShips={true}
-                    placingCells={selectedCells}
-                    validNextCells={validNextCells}
                     placedShipCells={
-                        !isReady && selectedCells.length === 0
+                        !isReady && !selectedShip && !placingDecoy
                             ? placements.flatMap((p) => p.cells)
                             : []
                     }
@@ -214,14 +237,42 @@ export default function SetupPage() {
                         shipId: p.shipId,
                         cells: p.cells,
                     }))}
+                    ghostOverlay={ghostOverlay}
+                    decoyCell={decoyCell}
                     title="Your Board"
                 />
 
+                <PresidentSidebar
+                    president={enemyPresidentDef ?? null}
+                    isEnemy
+                    pendingText="Waiting for opponent..."
+                />
+
                 <div className="setup-actions">
+                    {isProvocateur && (
+                        <button
+                            className={`decoy-btn ${placingDecoy ? "active" : ""} ${decoyCell ? "placed" : ""}`}
+                            onClick={() => {
+                                if (decoyCell) {
+                                    setDecoyCell(null);
+                                } else {
+                                    setPlacingDecoy((v) => !v);
+                                    setSelectedShip(null);
+                                }
+                            }}
+                            disabled={isReady}
+                        >
+                            {decoyCell
+                                ? "↩ Recall Decoy"
+                                : placingDecoy
+                                  ? "Cancel"
+                                  : "🎭 Place Decoy"}
+                        </button>
+                    )}
                     <button
-                        className={`ready-btn ${allShipsPlaced && !isReady ? "active" : ""}`}
+                        className={`ready-btn ${canReady && !isReady ? "active" : ""}`}
                         onClick={handleReady}
-                        disabled={!allShipsPlaced || isReady}
+                        disabled={!canReady || isReady}
                     >
                         {isReady ? "Ready!" : "Ready"}
                     </button>

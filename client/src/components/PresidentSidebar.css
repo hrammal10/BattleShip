@@ -1,0 +1,115 @@
+.president-sidebar {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    width: 180px;
+    flex-shrink: 0;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 12px;
+    padding: 20px 16px;
+    text-align: center;
+    box-sizing: border-box;
+}
+
+.president-sidebar-icon {
+    font-size: 2.8rem;
+    line-height: 1;
+}
+
+.president-sidebar-name {
+    font-size: 0.95rem;
+    font-weight: 700;
+    color: #ecf0f1;
+    margin: 0;
+}
+
+.president-sidebar-title {
+    font-size: 0.7rem;
+    font-weight: 600;
+    color: #3498db;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    margin: 0;
+}
+
+.president-sidebar-desc {
+    font-size: 0.75rem;
+    color: #aab7b8;
+    line-height: 1.4;
+    margin: 0;
+}
+
+.president-sidebar-ability {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 5px;
+    margin-top: 8px;
+    padding-top: 12px;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+    width: 100%;
+}
+
+.president-sidebar-badge {
+    padding: 3px 10px;
+    border-radius: 20px;
+    font-size: 0.7rem;
+    font-weight: 700;
+}
+
+.president-sidebar-badge.active {
+    background: rgba(231, 76, 60, 0.2);
+    color: #e74c3c;
+    border: 1px solid rgba(231, 76, 60, 0.4);
+}
+
+.president-sidebar-badge.passive {
+    background: rgba(46, 204, 113, 0.2);
+    color: #2ecc71;
+    border: 1px solid rgba(46, 204, 113, 0.4);
+}
+
+.president-sidebar-ability-name {
+    font-size: 0.82rem;
+    font-weight: 700;
+    color: #ecf0f1;
+    margin: 0;
+}
+
+.president-sidebar-ability-desc {
+    font-size: 0.7rem;
+    color: #aab7b8;
+    line-height: 1.4;
+    margin: 0;
+}
+
+.president-sidebar.enemy {
+    border-color: rgba(231, 76, 60, 0.25);
+}
+
+.president-sidebar.enemy .president-sidebar-title {
+    color: #e74c3c;
+}
+
+.president-sidebar-label {
+    font-size: 0.65rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: rgba(255, 255, 255, 0.35);
+    margin: 0;
+}
+
+.president-sidebar-pending {
+    font-size: 0.78rem;
+    color: rgba(255, 255, 255, 0.3);
+    font-style: italic;
+    margin: 0;
+}
+
+.president-sidebar.pending {
+    justify-content: center;
+    gap: 12px;
+}

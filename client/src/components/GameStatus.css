@@ -1,3 +1,11 @@
+.game-status-wrapper {
+    height: 50px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+
 .game-status {
     padding: 12px 24px;
     background: rgba(0, 0, 0, 0.4);
@@ -9,6 +17,7 @@
     text-transform: uppercase;
     letter-spacing: 1px;
     text-align: center;
+    white-space: nowrap;
 }
 
 .game-status.my-turn {

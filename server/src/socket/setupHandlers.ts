@@ -1,17 +1,44 @@
 import { Server, Socket } from "socket.io";
-import Game from "../models/Game";
 import { GameState, ShipPlacement } from "../game/types";
-import { CELL } from "../game/constants";
-import { createEmptyBoard, validateFleetPlacement } from "../game/gameLogic";
+import { validateFleetPlacement } from "../game/gameLogic";
+import { GameService } from "../services/GameService";
+import { gameStore } from "../store/gameStore";
+import { blockchain } from "../services/BlockchainService";
+import { resolvePlayerNumber, rejectUnknownSocket } from "./utils";
 import logger from "../utils/logger";
+
+// Atomically start the game if both players are ready.
+// Returns without emitting if the game isn't ready yet or another handler beat us to it.
+async function startGameIfBothReady(io: Server, gameId: string): Promise<void> {
+    const startingTurn = (Math.random() < 0.5 ? 1 : 2) as 1 | 2;
+    const started = GameService.startGame(gameId, startingTurn);
+    if (!started) return;
+
+    // Emit individually so each socket receives its own player ID
+    const sockets = await io.in(gameId).fetchSockets();
+    for (const s of sockets) {
+        const pNum = resolvePlayerNumber(started, s.id);
+        if (pNum) {
+            s.emit("game-start", { gameId, turn: startingTurn, yourPlayerId: pNum });
+        }
+    }
+    logger.info("Game started", { gameId, firstTurn: startingTurn });
+}
 
 export function registerSetupHandlers(io: Server, socket: Socket) {
     socket.on(
         "place-ships",
-        async ({ gameId, ships }: { gameId: string; ships: ShipPlacement[] }) => {
+        async ({
+            gameId,
+            ships,
+            decoyCell,
+        }: {
+            gameId: string;
+            ships: ShipPlacement[];
+            decoyCell?: { row: number; col: number } | null;
+        }) => {
             try {
-                const game = await Game.findOne({ gameId });
-
+                const game = gameStore.get(gameId);
                 if (!game || game.state !== GameState.SETUP) {
                     socket.emit("error", { message: "Invalid game state" });
                     return;
@@ -28,69 +55,27 @@ export function registerSetupHandlers(io: Server, socket: Socket) {
                     return;
                 }
 
-                // Determine player from DB (socket.data can be lost on reconnect)
-                let playerNum: 1 | 2;
-                if (game.player1?.socketId === socket.id) {
-                    playerNum = 1;
-                } else if (game.player2?.socketId === socket.id) {
-                    playerNum = 2;
-                } else {
-                    socket.emit("error", { message: "You are not in this game" });
+                const playerNum = resolvePlayerNumber(game, socket.id);
+                if (!playerNum) {
                     logger.warn("Unknown socket tried to place ships", {
                         gameId,
                         socketId: socket.id,
                     });
+                    return rejectUnknownSocket(socket);
+                }
+
+                const { error } = GameService.placeShips(gameId, playerNum, ships, decoyCell);
+                if (error) {
+                    socket.emit("ships-rejected", { gameId, reason: error });
                     return;
                 }
 
-                const boardKey = playerNum === 1 ? "board1" : "board2";
-                const playerKey = playerNum === 1 ? "player1" : "player2";
-
-                const board = createEmptyBoard();
-                for (const ship of ships) {
-                    for (const cell of ship.cells) {
-                        board[cell.row][cell.col] = CELL.SHIP;
-                    }
-                }
-
-                game[boardKey] = board;
-                game[playerKey]!.ships = ships;
-                game[playerKey]!.ready = true;
-                await game.save();
-
+                blockchain.shipsPlaced(gameId, playerNum);
                 socket.emit("ships-accepted", { gameId });
                 socket.to(gameId).emit("opponent-ready", { gameId });
-
                 logger.info("Ships placed", { gameId, player: playerNum });
 
-                // Re-fetch to avoid race condition if both players submit close together
-                const updated = await Game.findOne({ gameId });
-                if (updated?.player1?.ready && updated?.player2?.ready) {
-                    const startingTurn = (Math.random() < 0.5 ? 1 : 2) as 1 | 2;
-                    updated.turn = startingTurn;
-                    updated.state = GameState.IN_PROGRESS;
-                    await updated.save();
-
-                    // Emit to each socket in the room with their player ID
-                    const sockets = await io.in(gameId).fetchSockets();
-                    for (const s of sockets) {
-                        const pNum =
-                            updated.player1.socketId === s.id
-                                ? 1
-                                : updated.player2!.socketId === s.id
-                                  ? 2
-                                  : null;
-                        if (pNum) {
-                            s.emit("game-start", {
-                                gameId,
-                                turn: startingTurn,
-                                yourPlayerId: pNum,
-                            });
-                        }
-                    }
-
-                    logger.info("Game started", { gameId, firstTurn: startingTurn });
-                }
+                await startGameIfBothReady(io, gameId);
             } catch (error) {
                 logger.error("Error placing ships", {
                     error: error instanceof Error ? error.message : error,

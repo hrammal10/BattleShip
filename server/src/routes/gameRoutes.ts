@@ -1,12 +1,12 @@
 import { Router } from "express";
-import Game from "../models/Game";
+import { gameStore } from "../store/gameStore";
 import logger from "../utils/logger";
 
 export const gameRoutes = Router();
 
-gameRoutes.get("/game/:gameId", async (req, res) => {
+gameRoutes.get("/game/:gameId", (req, res) => {
     try {
-        const game = await Game.findOne({ gameId: req.params.gameId });
+        const game = gameStore.get(req.params.gameId);
 
         if (!game) {
             res.status(404).json({ error: "Game not found" });

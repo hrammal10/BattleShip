@@ -3,7 +3,6 @@ import express from "express";
 import http from "http";
 import cors from "cors";
 import { Server } from "socket.io";
-import { connectDB } from "./config/db";
 import { registerSocketHandlers } from "./socket";
 import { gameRoutes } from "./routes/gameRoutes";
 import logger from "./utils/logger";
@@ -13,7 +12,7 @@ const server = http.createServer(app);
 
 const io = new Server(server, {
     cors: {
-        origin: process.env.CLIENT_URL || "https://localhost:5173",
+        origin: process.env.CLIENT_URL || "http://localhost:5173",
         methods: ["GET", "POST"],
     },
 });
@@ -31,11 +30,16 @@ registerSocketHandlers(io);
 
 const PORT = process.env.PORT || 3001;
 
-async function start() {
-    await connectDB();
-    server.listen(PORT, () => {
-        logger.info(`Server running on port ${PORT}`);
-    });
-}
-
-start();
+server.listen(PORT, () => {
+    logger.info(`Server running on port ${PORT}`);
+    if (process.env.OPERATOR_PRIVATE_KEY && process.env.CONTRACT_ADDRESS) {
+        logger.info("Blockchain mode: operator wallet active", {
+            chain: process.env.CHAIN || "base-sepolia",
+            contract: process.env.CONTRACT_ADDRESS,
+        });
+    } else {
+        logger.warn(
+            "Blockchain mode: disabled (set OPERATOR_PRIVATE_KEY + CONTRACT_ADDRESS to enable)",
+        );
+    }
+});

@@ -1,6 +1,6 @@
 export const BOARD_SIZE = 10;
 
-export const SHIPS = Object.freeze({
+const SHIPS = Object.freeze({
     carrier: { id: "carrier", length: 5 },
     battleship: { id: "battleship", length: 4 },
     cruiser: { id: "cruiser", length: 3 },
@@ -15,4 +15,5 @@ export const CELL = Object.freeze({
     SHIP: 1,
     MISS: 2,
     HIT: 3,
+    DECOY: 4,
 } as const);
