@@ -93,6 +93,9 @@ contract BattleShip {
         uint8   result
     ) external onlyOperator {
         require(games[gameId].phase == Phase.ACTIVE, "BattleShip: game not active");
+        require(playerNum == 1 || playerNum == 2,    "BattleShip: invalid player");
+        require(row < 10 && col < 10,                "BattleShip: position out of bounds");
+        require(result <= 2,                          "BattleShip: invalid result");
         emit ShotFired(gameId, playerNum, row, col, result);
     }
 

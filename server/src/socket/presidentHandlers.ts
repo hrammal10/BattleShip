@@ -152,9 +152,15 @@ export function registerPresidentHandlers(io: Server, socket: Socket) {
                     const nextTurn = getOpponent(playerNum);
                     game.turn = nextTurn;
                     gameStore.set(gameId, game);
-                    io.to(gameId).emit("ability-result", {
+                    socket.emit("ability-result", {
                         type: "strategist",
                         cells,
+                        nextTurn,
+                        player: playerNum,
+                    });
+                    socket.to(gameId).emit("ability-result", {
+                        type: "strategist",
+                        cells: [],
                         nextTurn,
                         player: playerNum,
                     });

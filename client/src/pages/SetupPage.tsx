@@ -48,7 +48,7 @@ function isPlacementValid(cells: { row: number; col: number }[], board: number[]
 
 export default function SetupPage() {
     const { gameId: urlGameId } = useParams<{ gameId: string }>();
-    const { gameState, playerId, placeShips, opponentReady, president, enemyPresident } = useGame();
+    const { gameState, playerId, placeShips, opponentReady, president, enemyPresident, error } = useGame();
 
     const [board, setBoard] = useState<number[][]>(() =>
         Array.from({ length: BOARD_SIZE }, () => Array(BOARD_SIZE).fill(CELL.EMPTY)),
@@ -68,6 +68,11 @@ export default function SetupPage() {
         : null;
 
     useGameNavigation(urlGameId, SETUP_ROUTES, true);
+
+    // Reset ready state if the server rejects the ship placement
+    useEffect(() => {
+        if (error) setIsReady(false);
+    }, [error]);
 
     // R key to rotate
     useEffect(() => {
